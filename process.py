@@ -1,10 +1,10 @@
 import re
 import pandas as pd
-import datetime
-import os
-from pyecharts import options as opts
-from pyecharts.charts import Bar
+import openpyxl
 
+
+
+# 字典date_dic初始化
 def data_dicReset(data_dic: dict):
     data_dic = {
         'Province': ['河北', '山西', '辽宁', '吉林', '黑龙江', '江苏', '浙江', '安徽', '福建', '江西', '山东', '河南', '湖北', '湖南', '广东', '海南',
@@ -15,6 +15,7 @@ def data_dicReset(data_dic: dict):
     }
     return data_dic
 
+# 将字符串数值转化成整型
 def getValue(str, province: str):
     value = 0
     index = str.find(province)
@@ -31,96 +32,69 @@ def getValue(str, province: str):
                     continue
     return value
 
-def getData_dicvalues(match: list, data_dic: dict):
-    province_list = list(data_dic['Province'])
-    for province in province_list:
-        str = match[3]
+# 从匹配列表match_list中提取值，为字典data_dic赋值
+def getData_dicValues(match: tuple, data_dic: dict, g_a_t_calConfirm_new: list):
+    province_list = data_dic['Province']
+    for province in province_list[0: 31]:
+        str = match[1]
         value = getValue(str, province)
         data_dic['newConfirm'].append(value)
     for province in province_list:
-        str = match[6]
+        str = match[2]
         value = getValue(str, province)
         data_dic['newInfection'].append(value)
-    return data_dic
+    for province in province_list[31:]:
+        str = match[3]
+        value = getValue(str, province)
+        g_a_t_calConfirm_new.append(value)
+    return data_dic, g_a_t_calConfirm_new
+
+# 正则匹配
+line_list = []
+with open("daily.txt", "r", encoding='utf-8') as f:
+    for line in f.readlines():
+        line_list.append(line.strip('\n'))  # 去掉列表中每一个元素的换行符
+# print(line_list)
+rule = '(.*)0—24时，31个省（自治区、直辖市）和新疆生产建设兵团报告新增确诊病例.*本土.*例（(.*)），.*31个省（自治区、直辖市）和新疆生产建设兵团报告新增无症状感染者.*本土.*例（(.*)）。.*港澳台地区通报确诊病例.*(香港.*)。'
+# 31个省（自治区、直辖市）和新疆生产建设兵团报告新增确诊病例.*本土.*例（.*），
+# 31个省（自治区、直辖市）和新疆生产建设兵团报告新增无症状感染者.*本土.*例（.*）。
+rule_compile = re.compile(rule)
+match = []
+for line in line_list:
+    match.append(rule_compile.findall(line))
+match_list = []
+for ls in match:
+    try:
+        match_list.append(ls[0])
+    except:
+        continue
+
+# 用字典来提取值
+data_dic = {}
+g_a_t_calConfirm = [308594, 82, 28040]  # 记录港澳台上一次累计新增病例
+match_list.reverse()
+for match in match_list:
+    data_dic = data_dicReset(data_dic)
+    g_a_t_calConfirm_new = []  # 记录这一次的港澳台累计新增病例
+    data_dic, g_a_t_calConfirm_new = getData_dicValues(match, data_dic, g_a_t_calConfirm_new)
+    for i in range(3):
+        data_dic['newConfirm'].append(g_a_t_calConfirm_new[i] - g_a_t_calConfirm[i])
+    g_a_t_calConfirm = g_a_t_calConfirm_new  # 更新港澳台累计新增病例
+
+    # 数据导入Excel
+    df = pd.DataFrame(data_dic)  # 转换pandas格式
+    date = match[0]  # 以日期作为Excel中sheet的名字
+    workbook = openpyxl.load_workbook(r'每日疫情情况.xlsx')
+    sheet_names = workbook.sheetnames
+    sheet_name = '{}'.format(date)
+    if sheet_name not in sheet_names:
+        writer = pd.ExcelWriter(r'每日疫情情况.xlsx', mode='a', engine='openpyxl')
+        df.to_excel(writer, sheet_name=sheet_name, index=False)
+        writer.save()
 
 
-def date_list():
-    today = datetime.datetime.now()
-    date_list = []
-    for i in range(1, 15):
-        time = today - datetime.timedelta(days=i)
-        time = time.timetuple()
-        VersionInfo = str(time.tm_mon) + "." + str(time.tm_mday)
-        date_list.append(VersionInfo)
-    return date_list
 
-def writeData_dicIntoExcel(df, date: str, path: str):
-    writer = pd.ExcelWriter(path + '\{}新增疫情.xls'.format(date))
-    df.to_excel(writer, index=False)
-    writer.save()
 
-def bar_combination(df, date):
-    c = (
-        Bar()
-            .add_xaxis(df['Province'].values.tolist())
-            .add_yaxis("新增无症状", df['newInfection'].values.tolist())
-            .add_yaxis("新增确诊", df['newConfirm'].values.tolist())
-            .set_global_opts(
-            title_opts=opts.TitleOpts(title="{}新增疫情".format(date)),
-            xaxis_opts=opts.AxisOpts(
-                name='地区',
-                name_location='middle',
-                name_gap=30,
-                name_textstyle_opts=opts.TextStyleOpts(
-                    font_family='Times New Roman',
-                    font_size=16
-                ),
-                boundary_gap=True,
-                axislabel_opts=opts.LabelOpts(interval=0) #!!!
 
-            ),
-            yaxis_opts=opts.AxisOpts(
-                name='人数',
-                name_location='middle',
-                name_gap=30,
-                name_textstyle_opts=opts.TextStyleOpts(
-                    font_family='Times New Roman',
-                    font_size=16
-                )
-            ),
-            datazoom_opts=opts.DataZoomOpts(type_="slider"),
-        )
-    )
-    return c
 
-if __name__ == "__main__":
 
-    line_list = []
-    with open("daily.txt", "r", encoding='utf-8') as f:
-        for line in f.readlines():
-            line_list.append(line.strip('\n'))  # 去掉列表中每一个元素的换行符
-
-    rule = "（.[^（）]+）"  # 匹配每对括号
-    # 31个省（自治区、直辖市）和新疆生产建设兵团报告新增确诊病例.*本土.*例（.*），
-    # 31个省（自治区、直辖市）和新疆生产建设兵团报告新增无症状感染者.*本土.*例（.*）。
-    rule_compile = re.compile(rule)
-    match_list = []
-    for line in line_list:
-        match_list.append(rule_compile.findall(line))
-
-    data_dic = {}
-    date_list = date_list()
-    i = 0
-    path = '每日疫情情况'
-    if not os.path.exists(path):
-        os.mkdir(path)
-    for match in match_list:
-        data_dic = data_dicReset(data_dic)
-        data_dic = getData_dicvalues(match, data_dic)
-        df = pd.DataFrame(data_dic)
-
-        writeData_dicIntoExcel(df, date_list[i], path)
-
-        bar_combination(df, date_list[i]).render(r"./每日疫情情况/{}新增疫情.html".format(date_list[i]))
-
-        i = i + 1
